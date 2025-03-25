@@ -1,0 +1,4 @@
+requests
+pydantic
+pydantic-core
+openai-agents

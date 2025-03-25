@@ -1,0 +1,13 @@
+FROM public.ecr.aws/lambda/python:3.13
+
+WORKDIR /app
+
+RUN dnf install -y zip
+
+COPY requirements.txt .
+COPY lambda_function.py .
+
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt -t python
+
+RUN zip -r lambda_function.zip python lambda_function.py
