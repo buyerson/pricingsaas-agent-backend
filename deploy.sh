@@ -3,7 +3,7 @@
 set -e
 
 # Define variables
-FUNCTION_NAME="AskAgent"
+FUNCTION_NAME="ws_sendmessage_handler"
 PYTHON_FILE="lambda_function.py"
 ZIP_FILE="build/lambda_function.zip"
 VENV_DIR="build/venv"
@@ -28,7 +28,7 @@ pip install \
     --implementation cp \
     --python-version 3.13 \
     --only-binary=:all: \
-    --upgrade pydantic jiter
+    --upgrade pydantic jiter openai-agents
 
 # Detect site-packages path dynamically
 SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
