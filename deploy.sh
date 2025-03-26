@@ -38,8 +38,8 @@ cd "$SITE_PACKAGES"
 zip -r9 "$OLDPWD/$ZIP_FILE" ./* > /dev/null
 cd "$OLDPWD"
 
-# Add your lambda handler file to the root of the zip
-zip -g "$ZIP_FILE" "$PYTHON_FILE" > /dev/null
+# Add your lambda handler and agent files to the root of the zip
+zip -g "$ZIP_FILE" "$PYTHON_FILE" agent.py > /dev/null
 
 # Update the existing Lambda function code
 echo "🔄 Updating Lambda function code..."
