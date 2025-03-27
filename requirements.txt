@@ -3,3 +3,6 @@ boto3
 pydantic
 pydantic-core
 openai-agents
+pinecone-client
+openai
+aiohttp

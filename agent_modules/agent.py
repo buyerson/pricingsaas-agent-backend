@@ -4,7 +4,6 @@ import boto3
 from agents import Agent, FileSearchTool, Runner
 from openai.types.responses import ResponseTextDeltaEvent, ResponseTextAnnotationDeltaEvent
 # Import additional response types if needed for annotations
-
 # This is the asynchronous function to stream agent's response
 async def stream_agent_response(prompt: str):
     agent = Agent(
@@ -51,18 +50,7 @@ async def send_streamed_response(apigateway, connection_id, prompt):
                     ConnectionId=connection_id,
                     Data=json.dumps({'text': event["data"], 'done': False}).encode('utf-8')
                 )
-            elif event["type"] == "annotation":
-                # Collect annotations
-                # Convert the annotation object to a serializable dictionary
-                # annotation_dict = {
-                #     "type": event["data"].type if hasattr(event["data"], "type") else "file_citation",
-                #     "file_citation": {
-                #         "file_id": event["data"].file_id if hasattr(event["data"], "file_id") else "",
-                #         "title": event["data"].title if hasattr(event["data"], "title") else ""
-                #     }
-                # }
-                # annotations.append(json.dumps(annotation_dict).encode('utf-8'))
-                # print(f"Annotation: {annotation_dict}")
+            elif event["type"] == "annotation":                
                 annotation_dict = {
                     "type": getattr(event["data"], "type", "file_citation"),
                     "file_citation": {
