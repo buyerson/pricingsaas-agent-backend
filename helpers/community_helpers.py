@@ -25,6 +25,55 @@ if OPENAI_API_KEY:
     except Exception as e:
         print(f"Error initializing OpenAI client: {e}")
 
+async def optimize_query_for_embeddings(query):
+    """
+    Preprocess the user query to optimize it for embedding-based search.
+    Uses OpenAI to generate a better query that will return the best matches.
+    
+    Args:
+        query: The original user query
+        
+    Returns:
+        An optimized query for embedding-based search
+    """
+    if not openai_client:
+        raise ValueError("OpenAI client is not initialized")
+    
+    try:
+        system_prompt = """
+        You are a query optimization expert. Your task is to rewrite a user's query to make it more effective for 
+        embedding-based search in a vector database (Pinecone) that contains community discussions about SaaS pricing.
+        
+        The optimized query should:
+        1. Focus on key concepts and terminology related to SaaS pricing
+        2. Remove unnecessary words and phrases
+        3. Include relevant synonyms or related terms that might appear in the target documents
+        4. Be concise but comprehensive
+        5. Maintain the original intent of the query
+        
+        Return ONLY the optimized query text without any explanations or additional text.
+        """
+        
+        response = openai_client.chat.completions.create(
+            model="gpt-4-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Original query: {query}\n\nOptimize this query for embedding-based search in a vector database containing SaaS pricing discussions."}
+            ],
+            temperature=0.3,
+            max_tokens=100
+        )
+        
+        optimized_query = response.choices[0].message.content.strip()
+        print(f"Original query: '{query}'")
+        print(f"Optimized query: '{optimized_query}'")
+        
+        return optimized_query
+    except Exception as e:
+        print(f"Error optimizing query: {e}")
+        print("Falling back to original query")
+        return query
+
 def generate_embedding(text):
     """Generate embedding for the given text using OpenAI API"""
     if not openai_client:
@@ -230,11 +279,14 @@ async def process_pinecone_results(index, query, context):
     results = {}
     
     try:
-        # Generate embedding for the query
-        query_vector = generate_embedding(query)
+        # Optimize the query for embedding-based search
+        optimized_query = await optimize_query_for_embeddings(query)
         
-        # First, try to find matching posts
-        post_results = query_pinecone(index, query_vector, 10, {"type": "post"})
+        # Generate embedding for the optimized query
+        query_vector = generate_embedding(optimized_query)
+        
+        # First, try to find matching posts - limit to top 5
+        post_results = query_pinecone(index, query_vector, 5, {"type": "post"})
         
         if post_results["matches"] and len(post_results["matches"]) > 0:
             # Filter results to only include those with 80% or higher score
@@ -284,8 +336,8 @@ async def process_pinecone_results(index, query, context):
                 results["message"] = "No high-confidence matches found (threshold: 80%)."
         
         if not results.get("posts") or len(results["posts"]) == 0:
-            # If no posts found or no high-confidence matches, try to find matching topics
-            topic_results = query_pinecone(index, query_vector, 10, {"type": "topic"})
+            # If no posts found or no high-confidence matches, try to find matching topics - limit to top 5
+            topic_results = query_pinecone(index, query_vector, 5, {"type": "topic"})
             
             if topic_results["matches"] and len(topic_results["matches"]) > 0:
                 # Filter results to only include those with 80% or higher score
@@ -358,6 +410,8 @@ def format_search_results(results, context):
         Formatted string with search results
     """
     formatted_results = "Here are the search results from the community knowledge base:\n\n"
+    formatted_results += "Query was optimized for embedding-based search to find the most relevant content.\n"
+    formatted_results += "Results are limited to the top 5 most relevant matches with 80%+ confidence.\n\n"
     
     if "error" in results:
         formatted_results += f"Error: {results['error']}\n"

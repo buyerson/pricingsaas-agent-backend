@@ -96,7 +96,10 @@ async def community_knowledge_search(
     if not pc or not index:
         return "Error: Pinecone client is not initialized or connection failed. Please set the PINECONE_API_KEY environment variable and ensure the index exists."
     
-    # Process search results
+    print(f"Processing query: '{query}'")
+    print("Optimizing query for embedding-based search...")
+    
+    # Process search results with query optimization and limited to top 5 matches
     results = await process_pinecone_results(index, query, context.context)
     
     # Store the results in context for future reference
@@ -118,15 +121,18 @@ community_pricing_agent = Agent[PricingAgentContext](
     
     # Routine
     1. When a user asks a pricing question, use the community_knowledge_search tool to find relevant information.
-    2. The search will only return high-confidence matches (80% or higher) and will fetch full topic data from Discourse.
-    3. Analyze the search results and provide a comprehensive answer based on the community knowledge.
-    4. For each unique topic referenced in your answer, include an annotation with [Topic X] where X is the topic number.
-    5. Your response should be a single, coherent answer that synthesizes information from all relevant topics.
-    6. If the search doesn't return relevant results, acknowledge the limitations and provide general pricing advice based on your knowledge.
-    7. Focus on practical, actionable advice about SaaS pricing strategies, models, and best practices.
+    2. The search will optimize the query using AI to get the best possible matches from the vector database.
+    3. The search will only return the top 5 high-confidence matches (80% or higher) and will fetch full topic data from Discourse.
+    4. Analyze the search results and provide a comprehensive answer based on the community knowledge.
+    5. For each unique topic referenced in your answer, include an annotation with [Topic X] where X is the topic number.
+    6. Your response should be a single, coherent answer that synthesizes information from all relevant topics.
+    7. If the search doesn't return relevant results, acknowledge the limitations and provide general pricing advice based on your knowledge.
+    8. Focus on practical, actionable advice about SaaS pricing strategies, models, and best practices.
     
     # Working with Full Topic Data
-    - The search tool now fetches complete conversations for each relevant topic
+    - The search tool now uses AI to optimize queries for better embedding-based search results
+    - The search is limited to the top 5 most relevant matches to ensure high quality results
+    - The tool fetches complete conversations for each relevant topic
     - Use this detailed information to provide more accurate and comprehensive answers
     - When referencing information from a specific topic, use the annotation format [Topic X] where X corresponds to the topic number
     - Make sure to integrate insights from all relevant topics into a cohesive response

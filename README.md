@@ -65,7 +65,9 @@ python test_community_agent.py
 
 ## Features
 
+- **AI-Optimized Query Processing**: Uses OpenAI to optimize queries for better embedding-based search results
 - **Community Knowledge Search**: Search through community knowledge to find answers to pricing questions
 - **High-Confidence Matching**: Only returns results with 80% or higher confidence score
+- **Top 5 Relevant Results**: Limits results to the top 5 most relevant matches for higher quality
 - **Full Topic Retrieval**: Fetches complete conversations from Discourse for comprehensive answers
 - **Annotated Responses**: Provides references to the source topics in the responses
