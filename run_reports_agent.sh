@@ -4,7 +4,7 @@
 source venv/bin/activate
 
 # Run the reports agent test script
-python test_reports_agent.py
+python test/test_reports_agent.py
 
 # Deactivate the virtual environment
 deactivate

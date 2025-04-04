@@ -327,9 +327,11 @@ async def process_pinecone_results(index, query, context):
                                     "type": "topic_citation",
                                     "topic_id": str(topic_id),
                                     "title": topic_data.get("title", f"Topic {topic_id}"),
-                                    "url": f"{DISCOURSE_URL}/t/{topic_id}"
+                                    "url": f"{DISCOURSE_URL}/t/{topic_id}",
+                                    "content": extract_text_from_html(topic_data.get('post_stream', {}).get('posts', [{}])[0].get('cooked', '')) if topic_data.get('post_stream', {}).get('posts') else ""
                                 }
                                 context.annotations.append(annotation)
+                                print(f"Added community annotation for topic {topic_id}: {annotation['title']}")
                         except Exception as e:
                             print(f"Error processing topic {topic_id}: {e}")
             else:

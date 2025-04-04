@@ -9,6 +9,8 @@ import os
 import json
 import asyncio
 import uuid
+import re
+import time
 from typing import List, Dict, Any
 
 from pydantic import BaseModel
@@ -30,6 +32,7 @@ from agents import (
 )
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from openai import OpenAI
+from openai.types.responses import ResponseTextDeltaEvent, ResponseTextAnnotationDeltaEvent
 from pinecone import Pinecone, ServerlessSpec
 
 # Import helper functions
@@ -143,6 +146,202 @@ community_pricing_agent = Agent[PricingAgentContext](
 )
 
 
+### STREAMING FUNCTIONS
+
+async def stream_community_agent_response(prompt: str):
+    """Stream the community agent's response with annotations.
+    
+    Args:
+        prompt: The user's pricing question
+        
+    Yields:
+        Events containing text deltas, annotations, or completion signals
+    """
+    context = PricingAgentContext()
+    result = Runner.run_streamed(
+        community_pricing_agent, 
+        [{"content": prompt, "role": "user"}],
+        context=context
+    )
+
+    async for event in result.stream_events():
+        # Handle annotation events
+        if event.type == "raw_response_event" and event.data.type == "response.output_text.annotation.added":
+            yield {"type": "annotation", "data": event.data.annotation}
+
+        # Handle text delta events
+        if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):  
+            if event.data.type == "response.output_text.delta":
+                # Normalize text to prevent excessive newlines
+                delta_text = event.data.delta
+                # Replace 3 or more consecutive newlines with just 2
+                delta_text = re.sub(r'\n{3,}', '\n\n', delta_text)
+                yield {"type": "text_delta", "data": delta_text}
+            elif event.data.type == "response.completion":
+                # Don't yield completion yet, we'll do it after processing context annotations
+                pass
+    
+    # Send any annotations stored in the context
+    if hasattr(context, 'annotations') and context.annotations:
+        print(f"Found {len(context.annotations)} annotations in community context")
+        for annotation in context.annotations:
+            print(f"Yielding community context annotation: {annotation}")
+            yield {"type": "annotation", "data": annotation}
+    
+    # Now yield completion after all annotations have been processed
+    yield {"type": "completion", "data": None}
+
+
+# Sends streamed data over WebSocket to the client
+async def send_community_streamed_response(apigateway, connection_id, prompt):
+    """Send the streamed response to the client via WebSocket.
+    
+    Args:
+        apigateway: The API Gateway client
+        connection_id: The WebSocket connection ID
+        prompt: The user's pricing question
+    """
+    try:
+        annotations = []
+        
+        async for event in stream_community_agent_response(prompt):
+            
+            if event["type"] == "text_delta":
+                # Normalize text to prevent excessive newlines
+                text_data = event["data"]
+                # Replace 3 or more consecutive newlines with just 2
+                text_data = re.sub(r'\n{3,}', '\n\n', text_data)
+                
+                # Send text deltas immediately
+                apigateway.post_to_connection(
+                    ConnectionId=connection_id,
+                    Data=json.dumps({'text': text_data, 'done': False}).encode('utf-8')
+                )
+            elif event["type"] == "annotation":
+                # Process annotation data
+                if isinstance(event["data"], dict):
+                    if "file_citation" in event["data"]:
+                        # Convert to the universal citation format
+                        file_id = event["data"]["file_citation"].get("file_id", f"community-{time.time()}")
+                        title = event["data"]["file_citation"].get("title", "Community Post")
+                        
+                        annotation_dict = {
+                            "type": "citation",
+                            "citation": {
+                                "id": file_id,
+                                "title": f"[Community] {title}" if not title.startswith("[Community]") else title,
+                                "source": "community",
+                                "content": "",
+                                "metadata": {
+                                    "original_type": "post_citation",
+                                    "topic_id": file_id
+                                }
+                            }
+                        }
+                    elif "type" in event["data"] and event["data"]["type"] == "topic_citation":
+                        # Handle topic_citation from context.annotations
+                        topic_id = event["data"].get("topic_id", f"community-{time.time()}")
+                        title = event["data"].get("title", "Community Post")
+                        url = event["data"].get("url", "")
+                        
+                        annotation_dict = {
+                            "type": "citation",
+                            "citation": {
+                                "id": topic_id,
+                                "title": f"[Community] {title}" if not title.startswith("[Community]") else title,
+                                "source": "community",
+                                "url": url,
+                                "content": event["data"].get("content", ""),
+                                "metadata": {
+                                    "original_type": "post_citation",
+                                    "topic_id": topic_id
+                                }
+                            }
+                        }
+                    else:
+                        # Convert to the universal citation format
+                        topic_id = event["data"].get("topic_id", event["data"].get("file_id", f"community-{time.time()}"))
+                        title = event["data"].get("title", event["data"].get("filename", "Community Post"))
+                        url = event["data"].get("url", "")
+                        
+                        annotation_dict = {
+                            "type": "citation",
+                            "citation": {
+                                "id": topic_id,
+                                "title": f"[Community] {title}" if not title.startswith("[Community]") else title,
+                                "source": "community",
+                                "url": url,
+                                "content": event["data"].get("content", ""),
+                                "metadata": {
+                                    "original_type": "post_citation",
+                                    "topic_id": topic_id,
+                                    "post_id": event["data"].get("post_id", "")
+                                }
+                            }
+                        }
+                else:
+                    # Convert to the universal citation format
+                    topic_id = getattr(event["data"], "topic_id", getattr(event["data"], "file_id", f"community-{time.time()}"))
+                    title = getattr(event["data"], "title", getattr(event["data"], "filename", "Community Post"))
+                    url = getattr(event["data"], "discourse_url", getattr(event["data"], "url", ""))
+                    
+                    annotation_dict = {
+                        "type": "citation",
+                        "citation": {
+                            "id": topic_id,
+                            "title": f"[Community] {title}" if not title.startswith("[Community]") else title,
+                            "source": "community",
+                            "url": url,
+                            "content": getattr(event["data"], "content", ""),
+                            "metadata": {
+                                "original_type": "post_citation",
+                                "topic_id": topic_id,
+                                "post_id": getattr(event["data"], "post_id", "")
+                            }
+                        }
+                    }
+                
+                # Debug: Print community annotation
+                print(f"Community agent generated annotation: {json.dumps(annotation_dict)}")
+                
+                annotations.append(annotation_dict)
+                
+                # Send individual annotation immediately for real-time display
+                apigateway.post_to_connection(
+                    ConnectionId=connection_id,
+                    Data=json.dumps({
+                        'text': '',
+                        'done': False,
+                        'annotation': annotation_dict
+                    }).encode('utf-8')
+                )
+
+            elif event["type"] == "completion":
+                # When we get a completion event, send the annotations
+                apigateway.post_to_connection(
+                    ConnectionId=connection_id,
+                    Data=json.dumps({
+                        'text': '',
+                        'done': False,
+                        'annotations': annotations
+                    }).encode('utf-8')
+                )
+
+        # Final message to indicate the stream is done
+        apigateway.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps({'text': '', 'annotations': annotations, 'done': True}).encode('utf-8')
+        )
+    except Exception as e:
+        print(f"Error during WebSocket streaming: {e}")
+        import traceback
+        traceback.print_exc()
+        apigateway.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps({'error': str(e), 'done': True}).encode('utf-8')
+        )
+
+
 ### RUN
 
 async def main():
@@ -165,29 +364,34 @@ async def main():
         if user_input.lower() in ['exit', 'quit', 'q']:
             print("Goodbye!")
             break
-            
-        with trace("Pricing consultation", group_id=conversation_id):
-            input_items.append({"content": user_input, "role": "user"})
-            result = await Runner.run(current_agent, input_items, context=context)
-
-            for new_item in result.new_items:
-                agent_name = new_item.agent.name
-                if isinstance(new_item, MessageOutputItem):
-                    message_text = ItemHelpers.text_message_output(new_item)
-                    print(f"{agent_name}: {message_text}")
-                    
-                    # If we have annotations, display them after the message
-                    if context.annotations:
-                        print("\nReferences:")
-                        for i, annotation in enumerate(context.annotations, 1):
-                            print(f"[{i}] {annotation['title']} - {annotation['url']}")
-                elif isinstance(new_item, ToolCallItem):
-                    print(f"{agent_name}: Searching community knowledge...")
-                elif isinstance(new_item, ToolCallOutputItem):
-                    print(f"{agent_name}: Found relevant information.")
-                else:
-                    print(f"{agent_name}: Skipping item: {new_item.__class__.__name__}")
-            input_items = result.to_input_list()
+        
+        print("Processing your question...")
+        annotations = []
+        
+        async for event in stream_community_agent_response(user_input):
+            if event["type"] == "text_delta":
+                # Normalize text to prevent excessive newlines
+                text_data = event["data"]
+                # Replace 3 or more consecutive newlines with just 2
+                text_data = re.sub(r'\n{3,}', '\n\n', text_data)
+                print(text_data, end="", flush=True)
+            elif event["type"] == "annotation":
+                annotation_dict = {
+                    "type": getattr(event["data"], "type", "file_citation"),
+                    "file_citation": {
+                        "file_id": getattr(event["data"], "file_id", ""),
+                        "title": getattr(event["data"], "filename", "")
+                    }
+                }
+                annotations.append(annotation_dict)
+        
+        if annotations:
+            print("\n\nReferences:")
+            for i, annotation in enumerate(annotations, 1):
+                file_citation = annotation.get("file_citation", {})
+                print(f"[{i}] {file_citation.get('title', 'Unknown')} - {file_citation.get('file_id', 'Unknown ID')}")
+        
+        print("\n")
 
 
 if __name__ == "__main__":

@@ -66,9 +66,9 @@ async def stream_reports_agent_response(prompt: str):
 
     async for event in result.stream_events():
         if event.type == "raw_response_event" and event.data.type == "response.output_text.annotation.added":
-            print("event.data")
-            print(event.data)
-            print("endof event.data")
+            # print("event.data")
+            # print(event.data)
+            # print("endof event.data")
             yield {"type": "annotation", "data": event.data.annotation}
 
         # Handle text delta events

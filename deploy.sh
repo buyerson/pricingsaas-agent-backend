@@ -22,13 +22,26 @@ source $VENV_DIR/bin/activate
 
 # Install dependencies with correct platform
 pip install --upgrade pip
+
+# Install all dependencies from requirements.txt
+echo "📦 Installing dependencies from requirements.txt..."
 pip install \
     --platform manylinux2014_x86_64 \
     --target=$VENV_DIR/lib/python3.13/site-packages \
     --implementation cp \
     --python-version 3.13 \
     --only-binary=:all: \
-    --upgrade pydantic jiter openai-agents
+    --upgrade -r requirements.txt
+
+# Install additional dependencies that might not be in requirements.txt
+echo "📦 Installing additional dependencies..."
+pip install \
+    --platform manylinux2014_x86_64 \
+    --target=$VENV_DIR/lib/python3.13/site-packages \
+    --implementation cp \
+    --python-version 3.13 \
+    --only-binary=:all: \
+    --upgrade jiter
 
 # Detect site-packages path dynamically
 SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
@@ -39,7 +52,17 @@ zip -r9 "$OLDPWD/$ZIP_FILE" ./* > /dev/null
 cd "$OLDPWD"
 
 # Add your lambda handler and agent files to the root of the zip
-zip -g "$ZIP_FILE" "$PYTHON_FILE" agent.py > /dev/null
+zip -g "$ZIP_FILE" "$PYTHON_FILE" agentMain.py > /dev/null
+
+# Add agent_modules directory to the zip
+echo "📦 Adding agent_modules directory to the package..."
+zip -r -g "$ZIP_FILE" agent_modules > /dev/null
+
+# Add helpers directory to the zip if it exists (required for community_helpers.py)
+if [ -d "helpers" ]; then
+    echo "📦 Adding helpers directory to the package..."
+    zip -r -g "$ZIP_FILE" helpers > /dev/null
+fi
 
 # Update the existing Lambda function code
 echo "🔄 Updating Lambda function code..."
