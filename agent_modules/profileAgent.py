@@ -26,6 +26,13 @@ class UserInfo:
     email: str = ""
     company: str = ""
     title: str = ""
+    
+    def __post_init__(self):
+        """Ensure all fields are initialized to empty strings if None."""
+        self.name = self.name or ""
+        self.email = self.email or ""
+        self.company = self.company or ""
+        self.title = self.title or ""
 
 class ValidationOutput(BaseModel):
     """Output model for the sensitive information guardrail check."""
@@ -35,22 +42,26 @@ class ValidationOutput(BaseModel):
 @function_tool
 async def fetch_user_info(wrapper: RunContextWrapper[UserInfo]) -> str:
     """
-    Fetches user information and populates the context with dummy data.
+    Fetches user information from the context.
     
     Returns:
         A message confirming the user information has been fetched along with the user details.
     """
-    # Populate the context with dummy data
-    wrapper.context.name = "John Doe"
-    wrapper.context.email = "john.doe@example.com"
-    wrapper.context.company = "Acme Corporation"
-    wrapper.context.title = "Product Manager"
-    
-    return f"""User information has been successfully fetched:
-- Name: {wrapper.context.name}
-- Email: {wrapper.context.email}
-- Company: {wrapper.context.company}
-- Title: {wrapper.context.title}"""
+    try:
+        # Just fetch what's already in the context
+        name = wrapper.context.name or "Not provided"
+        email = wrapper.context.email or "Not provided"
+        company = wrapper.context.company or "Not provided"
+        title = wrapper.context.title or "Not provided"
+        
+        return f"""User information has been successfully fetched:
+- Name: {name}
+- Email: {email}
+- Company: {company}
+- Title: {title}"""
+    except Exception as e:
+        # Handle any errors gracefully
+        return "Could not fetch user information. The profile may be empty or not properly initialized."
 
 @function_tool
 async def validate_user_info(wrapper: RunContextWrapper[UserInfo]) -> str:
@@ -60,25 +71,29 @@ async def validate_user_info(wrapper: RunContextWrapper[UserInfo]) -> str:
     Returns:
         A message indicating whether the user information is valid or not.
     """
-
-    fetch_user_info(wrapper)
-
-    # Check if any of the fields are empty
-    empty_fields = []
-    
-    if not wrapper.context.name:
-        empty_fields.append("name")
-    if not wrapper.context.email:
-        empty_fields.append("email")
-    if not wrapper.context.company:
-        empty_fields.append("company")
-    if not wrapper.context.title:
-        empty_fields.append("title")
-    
-    if empty_fields:
-        return f"User information is incomplete. Missing fields: {', '.join(empty_fields)}"
-    else:
-        return "User information is complete and valid."
+    try:
+        # Don't call fetch_user_info here as it might cause issues
+        # Just validate what we already have
+        
+        # Check if any of the fields are empty
+        empty_fields = []
+        
+        if not wrapper.context.name:
+            empty_fields.append("name")
+        if not wrapper.context.email:
+            empty_fields.append("email")
+        if not wrapper.context.company:
+            empty_fields.append("company")
+        if not wrapper.context.title:
+            empty_fields.append("title")
+        
+        if empty_fields:
+            return f"User information is incomplete. Missing fields: {', '.join(empty_fields)}"
+        else:
+            return "User information is complete and valid."
+    except Exception as e:
+        # Handle any errors gracefully
+        return f"Could not validate user information. Current profile state: Name: '{wrapper.context.name or 'Not provided'}', Email: '{wrapper.context.email or 'Not provided'}', Company: '{wrapper.context.company or 'Not provided'}', Title: '{wrapper.context.title or 'Not provided'}'."
 
 @function_tool
 async def update_profile(wrapper: RunContextWrapper[UserInfo], name: str = None, email: str = None, 
@@ -95,34 +110,44 @@ async def update_profile(wrapper: RunContextWrapper[UserInfo], name: str = None,
     Returns:
         A message confirming which fields were updated.
     """
-    updated_fields = []
-    
-    if name is not None:
-        wrapper.context.name = name
-        updated_fields.append("name")
+    try:
+        updated_fields = []
         
-    if email is not None:
-        wrapper.context.email = email
-        updated_fields.append("email")
+        if name is not None:
+            wrapper.context.name = name
+            updated_fields.append("name")
+            
+        if email is not None:
+            wrapper.context.email = email
+            updated_fields.append("email")
+            
+        if company is not None:
+            wrapper.context.company = company
+            updated_fields.append("company")
+            
+        if title is not None:
+            wrapper.context.title = title
+            updated_fields.append("title")
         
-    if company is not None:
-        wrapper.context.company = company
-        updated_fields.append("company")
+        if not updated_fields:
+            return "No profile information was updated."
         
-    if title is not None:
-        wrapper.context.title = title
-        updated_fields.append("title")
-    
-    if not updated_fields:
-        return "No profile information was updated."
-    
-    return f"""Profile information updated:
+        # Get current values, handling None values
+        current_name = wrapper.context.name or "Not provided"
+        current_email = wrapper.context.email or "Not provided"
+        current_company = wrapper.context.company or "Not provided"
+        current_title = wrapper.context.title or "Not provided"
+        
+        return f"""Profile information updated:
 - Updated fields: {', '.join(updated_fields)}
 - Current profile:
-  - Name: {wrapper.context.name}
-  - Email: {wrapper.context.email}
-  - Company: {wrapper.context.company}
-  - Title: {wrapper.context.title}"""
+  - Name: {current_name}
+  - Email: {current_email}
+  - Company: {current_company}
+  - Title: {current_title}"""
+    except Exception as e:
+        # Handle any errors gracefully
+        return f"There was an issue updating the profile. Please try again with specific field values."
  
 
 # Create a guardrail agent to check for sensitive information requests
