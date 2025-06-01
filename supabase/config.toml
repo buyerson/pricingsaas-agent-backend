@@ -1,0 +1,10 @@
+
+project_id = "qulnbyjrczvoxemtrili"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+
+[functions.knowledge-base-api]
+verify_jwt = false

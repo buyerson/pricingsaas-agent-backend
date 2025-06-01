@@ -1,10 +1,12 @@
 requests
 boto3
-pydantic
+pydantic>=2.0.0
 pydantic-core
 openai-agents
-pinecone
-openai
+pinecone-client>=2.2.1
+openai>=1.0.0
 aiohttp
-supabase-py
+supabase
 python-dotenv
+jsonschema>=4.17.3
+tenacity>=8.2.2

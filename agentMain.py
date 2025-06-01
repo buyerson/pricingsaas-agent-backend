@@ -4,14 +4,16 @@ from agents import Runner, ItemHelpers
 from openai.types.responses import ResponseTextDeltaEvent, ResponseTextAnnotationDeltaEvent
 from agent_modules.reportsAgent import create_reports_agent
 from agent_modules.communityAgent import community_pricing_agent, PricingAgentContext as CommunityAgentContext
+from agent_modules.knowledgeBaseAgent import KnowledgeBaseAgent
 
-async def stream_agent_response(prompt: str):
+async def stream_agent_response(prompt: str, user_id: str = "system"):
     """
-    Stream responses from reports and community agents sequentially.
-    Runs reports agent first, then community agent, streaming responses as they come.
+    Stream responses from reports, community, and knowledge base agents sequentially.
+    Runs reports agent first, then community agent, then knowledge base agent, streaming responses as they come.
     
     Args:
         prompt: The user's pricing question
+        user_id: The ID of the user making the request (for knowledge base access control)
         
     Yields:
         Events containing text deltas, annotations, status updates, or completion signals
@@ -25,8 +27,8 @@ async def stream_agent_response(prompt: str):
     {
         "id": "unique-id",           # File ID, topic ID, or generated ID
         "title": "Document Title",   # Document title with source prefix
-        "source": "report|community", # Source of the citation
-        "url": "optional-url",       # URL for community posts (optional)
+        "source": "report|community|kb", # Source of the citation
+        "url": "optional-url",       # URL for community posts or KB entries (optional)
         "content": "optional-content", # Preview content if available (optional)
         "metadata": {}               # Additional source-specific metadata (optional)
     }
@@ -192,11 +194,63 @@ async def stream_agent_response(prompt: str):
                 
                 print(f"Yielding community context annotation: {formatted_annotation}")
                 yield {"type": "annotation", "data": formatted_annotation}
+                
+        # Run Knowledge Base Agent
+        try:
+            # Start Knowledge Base Agent with markdown header
+            yield {"type": "text_delta", "data": "\n\n## 📚 INSIGHTS FROM KNOWLEDGE BASE\n\n"}
+            
+            # Initialize Knowledge Base Agent
+            kb_agent = KnowledgeBaseAgent()
+            
+            # Create a simple context with user_id
+            from openai_agents import AgentContext, State
+            kb_context = AgentContext(state=State({"user_id": user_id}))
+            
+            # Process the query with the Knowledge Base Agent
+            kb_response = await kb_agent.process_query(prompt, kb_context)
+            
+            # Handle results
+            if kb_response.get("results"):
+                # Process each result
+                for result in kb_response.get("results", []):
+                    content = result.get("content", "")
+                    citation_id = result.get("citation")
+                    
+                    # Yield the content
+                    yield {"type": "text_delta", "data": content + "\n\n"}
+                    
+                # Process citations
+                for citation in kb_response.get("citations", []):
+                    formatted_annotation = {
+                        "type": "citation",
+                        "citation": {
+                            "id": citation.get("id"),
+                            "title": f"[Knowledge Base] {citation.get('title')}",
+                            "source": "kb",
+                            "url": citation.get("url", ""),
+                            "content": citation.get("content", ""),
+                            "metadata": {
+                                "original_type": "kb_citation",
+                                "entry_id": citation.get("id")
+                            }
+                        }
+                    }
+                    
+                    yield {"type": "annotation", "data": formatted_annotation}
+            else:
+                yield {"type": "text_delta", "data": "No relevant knowledge base entries found for this query.\n\n"}
+                
+            yield {"type": "text_delta", "data": "   ✅ Knowledge base search complete\n\n"}
+                
+        except Exception as e:
+            print(f"Error during knowledge base execution: {e}")
+            yield {"type": "text_delta", "data": f"\n⚠️ Error accessing knowledge base: {str(e)}\n\n"}
         
-        # Send completion event after all annotations have been processed
+        # Send completion event after all agents have been processed
         yield {"type": "completion", "data": None}
             
     except Exception as e:
-        print(f"Error during community execution: {e}")
-        yield {"type": "text_delta", "data": f"\n⚠️ Error retrieving community knowledge: {str(e)}\n\n"}
+        print(f"Error during agent execution: {e}")
+        yield {"type": "text_delta", "data": f"\n⚠️ Error processing your question: {str(e)}\n\n"}
         yield {"type": "completion", "data": None}
