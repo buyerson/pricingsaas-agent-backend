@@ -6,3 +6,5 @@ openai-agents
 pinecone
 openai
 aiohttp
+supabase-py
+python-dotenv

@@ -22,18 +22,20 @@ try:
         RunContextWrapper
     )
 
-    from profileAgent import (
+    # Import from profileAgent with proper module path
+    from agent_modules.profileAgent import (
         UserInfo,
         validate_user_info,
         update_profile,
-        fetch_user_info
+        fetch_user_info,
+        load_profile_to_context  # Import the new profile loading function
     )
     IMPORTS_SUCCESSFUL = True
     
-    # Create the triage agent that will handle profile completion
-    triage_agent = Agent[UserInfo](
-        name="Profile Triage Assistant",
-        instructions="""
+    # Function to create dynamic instructions that include user info if available
+    def get_triage_instructions(context: Optional[UserInfo] = None) -> str:
+        # Default instructions
+        base_instructions = """
         You are a Profile Triage Assistant that helps users complete their profiles.
         
         # Routine
@@ -52,14 +54,30 @@ try:
         - Always validate the profile after each update to track progress.
         
         # Required Profile Fields
-        - Name
+        - First Name
+        - Last Name
         - Email
         - Company
         - Title
         
         Always use the tools provided to interact with the user profile data.
-        """,
-        tools=[validate_user_info, fetch_user_info, update_profile],
+        """
+        
+        # If we have context with profile data, personalize the instructions
+        if context and hasattr(context, '_profile_loaded') and context._profile_loaded:
+            name = f"{context.first_name} {context.last_name}".strip()
+            if name:
+                base_instructions = f"""
+        You are a Profile Triage Assistant that helps {name} complete their profile.
+        """ + base_instructions
+                
+        return base_instructions
+    
+    # Create the triage agent that will handle profile completion
+    triage_agent = Agent[UserInfo](
+        name="Profile Triage Assistant",
+        instructions=get_triage_instructions(),
+        tools=[validate_user_info, fetch_user_info, update_profile, load_profile_to_context],
     )
 
     # Create a profile agent for validation only
@@ -275,11 +293,27 @@ if IMPORTS_SUCCESSFUL:
         # Create a unique ID for this conversation
         conversation_id = str(uuid.uuid4().hex[:16])
         
+        # Pre-load profile data if not already loaded
+        if not hasattr(user_info, '_profile_loaded') or not user_info._profile_loaded:
+            # If user_id is not set, use the mock ID
+            user_id = getattr(user_info, 'user_id', None) or "e03ea766-9ca0-4e60-8299-0ba759318384"
+            load_profile_to_context(user_info, user_id)
+            yield {"type": "text_delta", "data": "📋 Loading your profile data...\n\n"}
+
         # Initialize the input list with the user's initial message
         inputs: list[TResponseInputItem] = [{"content": initial_message, "role": "user"}]
         
-        # Start with the triage agent
-        agent = triage_agent
+        # Start with the triage agent - use dynamic instructions with the loaded profile
+        if hasattr(user_info, '_profile_loaded') and user_info._profile_loaded:
+            # Create the agent with personalized instructions based on profile data
+            agent = Agent[UserInfo](
+                name="Profile Triage Assistant",
+                instructions=get_triage_instructions(user_info),
+                tools=[validate_user_info, fetch_user_info, update_profile],
+            )
+        else:
+            # Use the default agent if profile not loaded
+            agent = triage_agent
         
         # Continue the conversation until the profile is complete
         with trace("Profile Triage", group_id=conversation_id):
@@ -343,6 +377,19 @@ else:
 async def main():
     """Main function to run the Triage Agent interactively."""
     if IMPORTS_SUCCESSFUL:
+        # Initialize with user ID and pre-load profile
+        user_id = "e03ea766-9ca0-4e60-8299-0ba759318384"  # Mock user ID
+        user_info = UserInfo(user_id=user_id)
+        
+        # Pre-load profile data before running the agent
+        print(f"Pre-loading profile for user ID: {user_id}...")
+        load_profile_to_context(user_info, user_id)
+        
+        if user_info._profile_loaded:
+            print(f"Loaded profile: {user_info.first_name} {user_info.last_name}, {user_info.email}")
+        else:
+            print("No profile found in database, proceeding with empty user info")
+            
         await run_triage_agent_session()
     else:
         print("\nCannot run the triage agent due to missing dependencies.")

@@ -6,11 +6,18 @@ using document search with FileSearchTool.
 import json
 import asyncio
 import uuid
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Import from openai-agents package
 from agents import Agent, FileSearchTool, Runner
 from openai.types.responses import ResponseTextDeltaEvent, ResponseTextAnnotationDeltaEvent
+
+# Import from profileAgent for user profile functionality
+try:
+    from agent_modules.profileAgent import UserInfo, load_profile_to_context
+    PROFILE_IMPORTS_SUCCESSFUL = True
+except ImportError:
+    PROFILE_IMPORTS_SUCCESSFUL = False
 
 ### CONTEXT
 
@@ -131,9 +138,57 @@ async def send_reports_streamed_response(apigateway, connection_id, prompt):
 
 async def main():
     """Main function to run the Reports Pricing Agent interactively."""
+    # Initialize user info and try to load profile if imports are successful
+    user_greeting = ""
+    if PROFILE_IMPORTS_SUCCESSFUL:
+        print("Profile agent imports successful")
+        try:
+            # Use the mock user ID for testing
+            user_id = "e03ea766-9ca0-4e60-8299-0ba759318384"
+            user_info = UserInfo(user_id=user_id)
+            
+            # Pre-load profile data
+            print(f"Attempting to load profile data for user ID: {user_id}...")
+            load_profile_to_context(user_info, user_id)
+            
+            # Debug the loaded profile state
+            print(f"Profile loaded state: {getattr(user_info, '_profile_loaded', False)}")
+            if hasattr(user_info, '_profile_loaded') and user_info._profile_loaded:
+                print(f"First name: {getattr(user_info, 'first_name', 'Not found')}")
+                print(f"Last name: {getattr(user_info, 'last_name', 'Not found')}")
+                print(f"Display name: {getattr(user_info, 'display_name', 'Not found')}")
+                print(f"Email: {getattr(user_info, 'email', 'Not found')}")
+                print(f"Company: {getattr(user_info, 'company', 'Not found')}")
+                print(f"Title: {getattr(user_info, 'title', 'Not found')}")
+
+                
+                # Create personalized greeting using the best available information
+                if user_info.first_name:
+                    # If we have a first name, use it
+                    user_greeting = f"Welcome, {user_info.first_name}! "
+                    print(f"Created greeting using first name: '{user_greeting}'")
+                elif hasattr(user_info, 'display_name') and user_info.display_name:
+                    # Next, try to use display_name if available
+                    user_greeting = f"Welcome, {user_info.display_name}! "
+                    print(f"Created greeting using display_name: '{user_greeting}'")
+                elif hasattr(user_info, 'email') and user_info.email:
+                    # Fall back to using email username if available
+                    username = user_info.email.split('@')[0] if '@' in user_info.email else user_info.email
+                    user_greeting = f"Welcome, {username}! "
+                    print(f"Created greeting using email username: '{user_greeting}'")
+                else:
+                    print("No personalization information available for greeting")
+            else:
+                print("Profile not loaded successfully")
+        except Exception as e:
+            print(f"Error loading profile: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Print welcome message with personalized greeting if available
     print("\nReports Pricing Agent")
     print("======================")
-    print("Ask questions about SaaS pricing strategies, models, and best practices.")
+    print(f"{user_greeting}Ask questions about SaaS pricing strategies, models, and best practices.")
     print("Type 'exit' to quit.\n")
 
     while True:
